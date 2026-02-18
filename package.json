@@ -1,0 +1,9 @@
+{
+  "name": "orcode",
+  "version": "1.1.0",
+  "description": "Claude Code backed by OpenRouter",
+  "bin": {
+    "orcode": "./bin/orcode"
+  },
+  "license": "MIT"
+}

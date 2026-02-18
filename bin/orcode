@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# orcode - Claude Code backed by OpenRouter
+# https://openrouter.ai/docs/guides/guides/claude-code-integration
+
+set -euo pipefail
+
+ORCODE_VERSION="1.1.0"
+ORCODE_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/orcode"
+ORCODE_MODELS_CACHE="$ORCODE_CACHE_DIR/models.json"
+ORCODE_CACHE_TTL=3600  # 1 hour
+
+# ── Help ──────────────────────────────────────────────────────────────
+show_help() {
+  cat <<'EOF'
+orcode - Claude Code backed by OpenRouter
+
+USAGE
+  orcode [options] [claude-code-args...]
+
+  All arguments not consumed by orcode are forwarded to claude.
+
+ENVIRONMENT
+  OPENROUTER_API_KEY   (required) Your OpenRouter API key
+                       Get one at https://openrouter.ai/keys
+
+  ORCODE_MODEL         (optional) Override the model sent to OpenRouter
+                       e.g. anthropic/claude-sonnet-4-5-20250929
+
+ORCODE OPTIONS
+  --or-help            Show this help
+  --or-version         Show orcode version
+  --or-model MODEL     Set model for this invocation
+  --or-key KEY         Set OpenRouter API key for this invocation
+  --or-status          Show current orcode configuration
+  --or-select-model    Interactive model selector (requires fzf)
+  --or-models          List all available OpenRouter models
+
+EXAMPLES
+  orcode                                  # interactive session
+  orcode --or-select-model                # pick a model, then start
+  orcode -p "explain this code"           # one-shot print mode
+  orcode --or-model deepseek/deepseek-r1 -p "hello"
+  orcode --continue                       # continue last session
+
+All other flags (--model, --print, --resume, etc.) are passed to claude.
+EOF
+}
+
+# ── Fetch models (with cache) ────────────────────────────────────────
+fetch_models() {
+  mkdir -p "$ORCODE_CACHE_DIR"
+
+  local need_fetch=1
+  if [[ -f "$ORCODE_MODELS_CACHE" ]]; then
+    local age
+    age=$(( $(date +%s) - $(stat -f %m "$ORCODE_MODELS_CACHE" 2>/dev/null || echo 0) ))
+    if (( age < ORCODE_CACHE_TTL )); then
+      need_fetch=0
+    fi
+  fi
+
+  if (( need_fetch )); then
+    echo "Fetching models from OpenRouter..." >&2
+    curl -sf https://openrouter.ai/api/v1/models > "$ORCODE_MODELS_CACHE" 2>/dev/null || {
+      echo "orcode: failed to fetch models from OpenRouter" >&2
+      exit 1
+    }
+  fi
+}
+
+# ── Format model line for display ────────────────────────────────────
+format_models() {
+  jq -r '.data[] |
+    def fmt_price:
+      (. // "0") | tonumber |
+      if . == 0 then "free"
+      elif . < 0.000001 then "\(. * 1000000 | . * 100 | round / 100)µ"
+      elif . < 0.001 then "$\(. * 1000000 | round / 100)/Mtok"
+      else "$\(. * 1000 | round / 100)/Ktok"
+      end;
+    "\(.id)\t\(.name)\tin: \(.pricing.prompt | fmt_price)  out: \(.pricing.completion | fmt_price)"
+  ' "$ORCODE_MODELS_CACHE"
+}
+
+# ── Interactive model selector ───────────────────────────────────────
+select_model() {
+  if ! command -v fzf &>/dev/null; then
+    echo "orcode: fzf is required for --or-select-model" >&2
+    echo "  brew install fzf" >&2
+    exit 1
+  fi
+
+  fetch_models
+
+  local selected
+  selected=$(
+    format_models | column -t -s $'\t' |
+    fzf \
+      --header="Select a model (type to search, Enter to select, Esc to cancel)" \
+      --prompt="model> " \
+      --height=~80% \
+      --layout=reverse \
+      --border=rounded \
+      --border-label=" OpenRouter Models " \
+      --info=inline \
+      --no-mouse \
+      --ansi \
+      --preview-window=hidden
+  ) || {
+    echo "No model selected." >&2
+    exit 1
+  }
+
+  # Extract model ID (first word)
+  echo "$selected" | awk '{print $1}'
+}
+
+# ── List models ──────────────────────────────────────────────────────
+list_models() {
+  fetch_models
+  format_models | column -t -s $'\t'
+}
+
+# ── Parse orcode-specific flags ───────────────────────────────────────
+CLAUDE_ARGS=()
+OR_MODEL="${ORCODE_MODEL:-}"
+OR_KEY="${OPENROUTER_API_KEY:-}"
+DO_SELECT=0
+DO_LIST=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --or-help)
+      show_help
+      exit 0
+      ;;
+    --or-version)
+      echo "orcode $ORCODE_VERSION"
+      exit 0
+      ;;
+    --or-model)
+      OR_MODEL="$2"
+      shift 2
+      ;;
+    --or-key)
+      OR_KEY="$2"
+      shift 2
+      ;;
+    --or-select-model)
+      DO_SELECT=1
+      shift
+      ;;
+    --or-models)
+      DO_LIST=1
+      shift
+      ;;
+    --or-status)
+      echo "orcode $ORCODE_VERSION"
+      if [[ -n "$OR_KEY" ]]; then
+        echo "  API key:  set (${OR_KEY:0:12}...)"
+      else
+        echo "  API key:  NOT SET"
+      fi
+      echo "  Model:    ${OR_MODEL:-default (chosen by claude)}"
+      echo "  Base URL: https://openrouter.ai/api"
+      exit 0
+      ;;
+    *)
+      CLAUDE_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# ── Validate ──────────────────────────────────────────────────────────
+if [[ -z "$OR_KEY" ]]; then
+  echo "orcode: OPENROUTER_API_KEY is not set" >&2
+  echo "" >&2
+  echo "  export OPENROUTER_API_KEY=\"sk-or-...\"" >&2
+  echo "" >&2
+  echo "  Get your key at https://openrouter.ai/keys" >&2
+  exit 1
+fi
+
+# ── List models (non-interactive) ────────────────────────────────────
+if (( DO_LIST )); then
+  list_models
+  exit 0
+fi
+
+# ── Interactive model selection ──────────────────────────────────────
+if (( DO_SELECT )); then
+  OR_MODEL=$(select_model)
+  echo "Selected: $OR_MODEL" >&2
+fi
+
+# ── Configure Claude Code for OpenRouter ──────────────────────────────
+export ANTHROPIC_BASE_URL="https://openrouter.ai/api"
+export ANTHROPIC_AUTH_TOKEN="$OR_KEY"
+export ANTHROPIC_API_KEY=""
+
+# Model override (if specified)
+if [[ -n "$OR_MODEL" ]]; then
+  CLAUDE_ARGS=("--model" "$OR_MODEL" "${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}")
+fi
+
+# ── Launch ────────────────────────────────────────────────────────────
+exec claude "${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}"
