@@ -4,17 +4,29 @@ Use [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with any model
 
 orcode is a thin wrapper around the `claude` CLI that routes requests through OpenRouter's API, giving you access to hundreds of models — Anthropic, OpenAI, Google, DeepSeek, Meta, Mistral, and more — all through the same familiar Claude Code interface.
 
+## Pick Any Model, Instantly
+
+```bash
+orcode --or-select-model
+```
+
+<p align="center">
+  <img src="assets/select-model.gif" alt="orcode interactive model selector" width="720">
+</p>
+
+Browse every model on OpenRouter with fuzzy search. See pricing at a glance. Hit Enter and you're coding.
+
 ## Quick Start
 
 ```bash
-# Install
+# 1. Install
 curl -fsSL https://raw.githubusercontent.com/mokarimi19/orcode/main/install.sh | bash
 
-# Set your API key
+# 2. Set your API key (get one at https://openrouter.ai/keys)
 export OPENROUTER_API_KEY="sk-or-..."
 
-# Run
-orcode
+# 3. Pick a model and start coding
+orcode --or-select-model
 ```
 
 ## Installation
@@ -51,7 +63,9 @@ ln -s "$(pwd)/bin/orcode" /usr/local/bin/orcode
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude` command)
 - [OpenRouter API key](https://openrouter.ai/keys) — free to create, pay per usage
 - `curl` and `jq` (for model fetching)
-- `fzf` (optional, for interactive model selector)
+- `fzf` (**recommended** — powers the interactive model selector)
+
+Install fzf: `brew install fzf` (macOS) or `apt install fzf` (Linux)
 
 ## Setup
 
@@ -85,43 +99,67 @@ orcode --continue
 orcode --resume SESSION_ID
 ```
 
-### Choosing a Model
+## Model Selection
+
+### Interactive Picker (recommended)
+
+The fastest way to choose a model. Fuzzy-search across every model on OpenRouter, see pricing inline, and launch with one keystroke:
+
+```bash
+orcode --or-select-model
+```
+
+```
+╭─────────────────── OpenRouter Models ────────────────────╮
+│ model>                                                   │
+│   anthropic/claude-sonnet-4-5   Claude Sonnet 4.5   in: $3/Mtok   out: $15/Mtok  │
+│   openai/gpt-4o                GPT-4o              in: $2.5/Mtok  out: $10/Mtok  │
+│   deepseek/deepseek-r1         DeepSeek R1          in: $0.55/Mtok out: $2.19/Mtok│
+│   google/gemini-2.5-pro        Gemini 2.5 Pro       in: $1.25/Mtok out: $10/Mtok  │
+│   meta-llama/llama-3.1-405b    Llama 3.1 405B       in: $3/Mtok   out: $3/Mtok   │
+│   ...hundreds more                                       │
+│                                                          │
+│   Type to search · Enter to select · Esc to cancel       │
+╰──────────────────────────────────────────────────────────╯
+```
+
+### Direct model flag
 
 ```bash
 # Use a specific model for one session
 orcode --or-model deepseek/deepseek-r1 -p "hello"
 
-# Set a default model via environment variable
+# Use GPT-4o
+orcode --or-model openai/gpt-4o -p "write a haiku about coding"
+
+# Use a free model
+orcode --or-model meta-llama/llama-3.1-8b-instruct:free
+```
+
+### Default model via environment
+
+```bash
 export ORCODE_MODEL="anthropic/claude-sonnet-4-5-20250929"
 orcode
+```
 
-# Interactive model picker (requires fzf)
-orcode --or-select-model
+### List all models
 
-# List all available models with pricing
+```bash
 orcode --or-models
 ```
 
-The interactive model selector (`--or-select-model`) shows all OpenRouter models with pricing info and lets you fuzzy-search to pick one:
-
-```
-model> claude
-  anthropic/claude-sonnet-4-5-20250929   Claude Sonnet 4.5   in: $3/Mtok  out: $15/Mtok
-  anthropic/claude-haiku-3-5-20241022    Claude 3.5 Haiku    in: $0.8/Mtok out: $4/Mtok
-  ...
-```
-
-### orcode Options
+## All Options
 
 | Flag | Description |
 |------|-------------|
-| `--or-help` | Show orcode help |
-| `--or-version` | Show version |
+| `--or-select-model` | **Interactive model picker** — fuzzy search all models (needs `fzf`) |
 | `--or-model MODEL` | Set model for this invocation |
+| `--or-models` | List all available models with pricing |
 | `--or-key KEY` | Set API key for this invocation |
 | `--or-status` | Show current configuration |
-| `--or-select-model` | Interactive model picker (needs `fzf`) |
-| `--or-models` | List all available models with pricing |
+| `--or-help` | Show orcode help |
+| `--or-version` | Show version |
 
 All other flags are passed directly to `claude`. See `claude --help` for the full list.
 
@@ -149,25 +187,6 @@ That's it — no patching, no proxies, no config files. Just a bash script that 
 ## Model Caching
 
 Model lists are cached at `~/.cache/orcode/models.json` for 1 hour to avoid repeated API calls. The cache is refreshed automatically when it expires.
-
-## Examples
-
-```bash
-# Use GPT-4o through Claude Code's interface
-orcode --or-model openai/gpt-4o -p "write a haiku about coding"
-
-# Use DeepSeek for a coding task
-orcode --or-model deepseek/deepseek-coder -p "optimize this function"
-
-# Use a free model
-orcode --or-model meta-llama/llama-3.1-8b-instruct:free
-
-# Check your current config
-orcode --or-status
-
-# Browse and pick a model interactively
-orcode --or-select-model
-```
 
 ## Troubleshooting
 
